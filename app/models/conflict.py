@@ -12,4 +12,3 @@ class Conflict(Base):
     overlap_start = Column(DateTime(timezone=True), nullable=True)
     overlap_end = Column(DateTime(timezone=True), nullable=True)
     detected_at = Column(DateTime(timezone=True), server_default=func.now())
-    

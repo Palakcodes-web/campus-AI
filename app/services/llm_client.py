@@ -92,3 +92,28 @@ def extract_information(raw_text: str, reference_dt: Optional[datetime] = None) 
     merged["extraction_method"] = "hybrid"
     merged["confidence_score"] = min(1.0, round((merged.get("confidence_score") or 0) + 0.15, 2))
     return merged
+   
+
+def answer_question(question: str, context_text: str) -> Optional[str]:
+    """Answers a free-text question using ONLY the given context text.
+    Returns None on any failure so the caller falls back to a
+    non-generated response — reuses the same _client instance set up
+    above, no new OpenAI configuration."""
+    if _client is None:
+        return None
+    try:
+        response = _client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": (
+                "Answer the student's question using ONLY the campus announcement "
+                "information given below. If the answer isn't in the information, "
+                "say you don't have that information. Never invent details.\n\n"
+                f"Campus announcement information:\n{context_text}\n\n"
+                f"Question: {question}\n\nAnswer concisely."
+            )}],
+            temperature=0,
+            timeout=8,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception:
+        return None
