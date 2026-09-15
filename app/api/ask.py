@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 from app.database import get_db
@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api", tags=["ask"])
 
 class AskRequest(BaseModel):
     question: str
-    student_id: Optional[int] = None
+    student_id: Optional[int] = Field(default=None, examples=[None])
 
 
 @router.post("/ask")
