@@ -9,6 +9,8 @@ of every group's variant. Seeds CSE (Year 1) and Robotics and AI (Year 1)
 from datetime import time
 from app.database import SessionLocal, engine, Base
 from app.models.timetable import TimetableEntry, Weekday
+from app.models.faculty import Faculty, FacultySchedule
+from app.utils.faculty_parsing import parse_faculty_field, normalize_name_key
 
 Base.metadata.create_all(bind=engine)
 db = SessionLocal()
@@ -960,8 +962,101 @@ def seed_branch(branch_name: str, year: int, rows, section: str = None):
         f"{len(rows)} entries."
     )
 
+def get_or_create_faculty(name: str) -> Faculty:
+    """
+    Create a Faculty record if it does not already exist.
+
+    Faculty names are matched using a normalized key so small formatting
+    differences such as:
+        Prof Shalini Arora
+        Prof. Shalini Arora
+    do not create duplicate faculty records.
+    """
+    key = normalize_name_key(name)
+
+    for faculty in db.query(Faculty).all():
+        if normalize_name_key(faculty.name) == key:
+            return faculty
+
+    faculty = Faculty(name=name.strip())
+    db.add(faculty)
+    db.flush()
+
+    return faculty
+
+
+def seed_faculty_from_timetable():
+    """
+    Derive Faculty and FacultySchedule records from ALL existing
+    TimetableEntry rows.
+
+    The timetable itself remains the single source of truth.
+    No PDF is parsed again here.
+
+    Each timetable entry can create one or more FacultySchedule rows,
+    allowing co-teaching faculty to share the same timetable entry.
+    """
+
+    created = 0
+
+    entries = db.query(TimetableEntry).all()
+
+    for entry in entries:
+
+        # No faculty information -> nothing to derive.
+        if not entry.faculty or not entry.faculty.strip():
+            continue
+
+        # Get faculty assignments for this timetable entry.
+        faculty_parts = parse_faculty_field(entry.faculty)
+
+        for name, group, needs_verification in faculty_parts:
+
+            if not name or not name.strip():
+                continue
+
+            faculty = get_or_create_faculty(name)
+
+            # Prevent the exact same FacultySchedule link
+            # from being created again.
+            already_exists = (
+                db.query(FacultySchedule)
+                .filter(
+                    FacultySchedule.faculty_id == faculty.id,
+                    FacultySchedule.timetable_entry_id == entry.id,
+                    FacultySchedule.group == group,
+                )
+                .first()
+            )
+
+            if already_exists:
+                continue
+
+            db.add(
+                FacultySchedule(
+                    faculty_id=faculty.id,
+                    timetable_entry_id=entry.id,
+                    group=group,
+                    needs_verification=needs_verification,
+                )
+            )
+
+            created += 1
+
+    db.commit()
+
+    print(
+        f"Faculty schedule derivation complete: "
+        f"{created} new faculty-schedule links created."
+    )
+    
+
 
 if __name__ == "__main__":
+    # ------------------------------------------------------------
+    # Student timetable data
+    # ------------------------------------------------------------
+
     seed_branch("CSE", 1, CSE_YEAR1)
     seed_branch("Robotics and AI", 1, RAIE_YEAR1)
     seed_branch("ECE", 1, ECE_YEAR1)
@@ -978,8 +1073,13 @@ if __name__ == "__main__":
     seed_branch("ECE-AI", 1, ECE_AI_II_YEAR1, section="II")
 
     seed_branch("MAC", 1, MAC_YEAR1)
-
     seed_branch("Cyber Security", 1, CYBER_SECURITY_YEAR1)
 
+     # -----------------------------------------
+     # Faculty timetable generation
+    # -----------------------------------------
+    derive_faculty_schedules(db)
+
     print("Seeding run complete.")
+
     db.close()
